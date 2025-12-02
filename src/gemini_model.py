@@ -1,8 +1,11 @@
 import google.generativeai as genai
 import os
+from dotenv import load_dotenv
 
+# Load variables from .env file
+load_dotenv()
 
-GEMINI_KEY = os.environ.get("AIzaSyChP3jKZ1WwX5WYbFX-a9VcpE_BFPic_jQ")
+GEMINI_KEY = os.getenv("SECRET_GEMINI_KEY")
 # assert GEMINI_KEY is not None, "GEMINI_API_KEY is not set"
 
 class GPT():
