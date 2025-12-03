@@ -1,68 +1,109 @@
 from beir import util
-import os, json, random, math
+import os
+import random
+import pathlib
+from tqdm import tqdm # useful for progress bars
 
-datasets = ["nq", "msmarco", "hotpotqa"]
+def resize_dataset(source_path, target_path, sample_rate=0.01):
+    """
+    Reads a BEIR dataset and creates a mini version with {sample_rate} size.
+    Ensures consistency so that qrels only reference existing docs/queries.
+    """
+    print(f"Creating {sample_rate*100}% subset of {os.path.basename(source_path)}...")
+    os.makedirs(target_path, exist_ok=True)
+    
+    # Sets to track IDs that made the cut
+    saved_doc_ids = set()
+    saved_query_ids = set()
 
-base_out = os.path.join(os.getcwd(), "datasets")
-small_out = os.path.join(os.getcwd(), "datasets_small")
-os.makedirs(small_out, exist_ok=True)
+    # 1. Process Corpus (Stream and save 1%)
+    source_corpus = os.path.join(source_path, "corpus.jsonl")
+    target_corpus = os.path.join(target_path, "corpus.jsonl")
+    
+    if os.path.exists(source_corpus):
+        with open(source_corpus, 'r', encoding='utf-8') as f_in, \
+             open(target_corpus, 'w', encoding='utf-8') as f_out:
+            
+            for line in tqdm(f_in, desc="Resizing Corpus"):
+                # Randomly select lines based on sample_rate
+                if random.random() < sample_rate:
+                    # Parse just the _id to save memory
+                    # (BEIR jsonl lines start with {"_id": "..."})
+                    doc_id = line.split('"_id": "')[1].split('"')[0]
+                    saved_doc_ids.add(doc_id)
+                    f_out.write(line)
 
-def read_jsonl(path):
-    with open(path, "r", encoding="utf-8") as f:
-        return [json.loads(line) for line in f]
+    # 2. Process Queries (Stream and save 1%)
+    source_queries = os.path.join(source_path, "queries.jsonl")
+    target_queries = os.path.join(target_path, "queries.jsonl")
 
-def write_jsonl(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        for item in data:
-            f.write(json.dumps(item) + "\n")
+    if os.path.exists(source_queries):
+        with open(source_queries, 'r', encoding='utf-8') as f_in, \
+             open(target_queries, 'w', encoding='utf-8') as f_out:
+            
+            for line in tqdm(f_in, desc="Resizing Queries"):
+                if random.random() < sample_rate:
+                    # Parse just the _id
+                    query_id = line.split('"_id": "')[1].split('"')[0]
+                    saved_query_ids.add(query_id)
+                    f_out.write(line)
 
-def sample_percent(data, pct=0.01):
-    k = max(1, math.floor(len(data) * pct))  # ensure at least 1 item
-    return random.sample(data, k)
+    # 3. Process Qrels (Filter: Only keep if Doc AND Query exist in sampled sets)
+    # BEIR datasets usually have qrels inside a folder named 'qrels'
+    source_qrels_dir = os.path.join(source_path, "qrels")
+    target_qrels_dir = os.path.join(target_path, "qrels")
+    os.makedirs(target_qrels_dir, exist_ok=True)
+
+    if os.path.exists(source_qrels_dir):
+        for filename in os.listdir(source_qrels_dir):
+            s_qrel = os.path.join(source_qrels_dir, filename)
+            t_qrel = os.path.join(target_qrels_dir, filename)
+            
+            with open(s_qrel, 'r', encoding='utf-8') as f_in, \
+                 open(t_qrel, 'w', encoding='utf-8') as f_out:
+                
+                # Write header
+                header = f_in.readline()
+                f_out.write(header)
+                
+                for line in tqdm(f_in, desc=f"Filtering {filename}"):
+                    cols = line.strip().split('\t')
+                    if len(cols) >= 2:
+                        q_id = cols[0]
+                        d_id = cols[1]
+                        
+                        # Only save this qrel if both the query and doc exist in our mini sets
+                        if q_id in saved_query_ids and d_id in saved_doc_ids:
+                            f_out.write(line)
+    
+    print(f"Done. Mini dataset saved to: {target_path}")
+
+
+# --- Main Execution ---
+
+datasets = ['hotpotqa']
+
+# Define where you want the full data and the mini data
+out_dir = os.path.join(os.getcwd(), "datasets")
 
 for dataset in datasets:
-    print(f"\n=== Processing {dataset} ===")
+    # 1. Download Full Dataset
+    url = "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{}.zip".format(dataset)
+    data_path = os.path.join(out_dir, dataset)
+    
+    if not os.path.exists(data_path):
+        print(f"Downloading {dataset}...")
+        data_path = util.download_and_unzip(url, out_dir)
+    
+    # 2. Create the 1% Version
+    mini_data_path = os.path.join(out_dir, f"{dataset}_mini")
+    if not os.path.exists(mini_data_path):
+        resize_dataset(data_path, mini_data_path, sample_rate=0.01)
 
-    # 1. Download & extract dataset
-    url = f"https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{dataset}.zip"
-    if not os.path.exists(os.path.join(base_out, dataset)):
-        util.download_and_unzip(url, base_out)
+# Cleanup: Remove zip files
+os.system('rm datasets/*.zip')
 
-    dataset_path = os.path.join(base_out, dataset)
-
-    # Paths
-    corpus_path = os.path.join(dataset_path, "corpus.jsonl")
-    queries_path = os.path.join(dataset_path, "queries.jsonl")
-    qrels_path   = os.path.join(dataset_path, "qrels", "train.tsv")  # or dev/test depending on your use
-
-    # 2. Load files
-    corpus  = read_jsonl(corpus_path)
-    queries = read_jsonl(queries_path)
-
-    # qrels is TSV
-    qrels = []
-    with open(qrels_path, "r", encoding="utf-8") as f:
-        for line in f:
-            qid, _, pid, score = line.strip().split("\t")
-            qrels.append({"qid": qid, "pid": pid, "score": score})
-
-    # 3. Sample 1%
-    corpus_1p  = sample_percent(corpus, pct=0.01)
-    queries_1p = sample_percent(queries, pct=0.01)
-    qrels_1p   = sample_percent(qrels, pct=0.01)
-
-    # 4. Save to new folder
-    out_dir = os.path.join(small_out, dataset)
-    os.makedirs(os.path.join(out_dir, "qrels"), exist_ok=True)
-
-    write_jsonl(os.path.join(out_dir, "corpus.jsonl"), corpus_1p)
-    write_jsonl(os.path.join(out_dir, "queries.jsonl"), queries_1p)
-
-    with open(os.path.join(out_dir, "qrels", "train.tsv"), "w", encoding="utf-8") as f:
-        for item in qrels_1p:
-            f.write(f"{item['qid']}\t0\t{item['pid']}\t{item['score']}\n")
-
-    print(f"Saved 1% of {dataset} into {out_dir}")
-
-# Cleanup .zip files
-os.system('rm -f datasets/*.zip')
+# Cleanup: (Optional) Remove the full datasets if you ONLY want the mini versions
+# import shutil
+# for dataset in datasets:
+#     shutil.rmtree(os.path.join(out_dir, dataset))
