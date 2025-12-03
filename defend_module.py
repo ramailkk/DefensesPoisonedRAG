@@ -10,6 +10,9 @@ from itertools import combinations
 from src.utils import progress_bar
 from rouge_score import rouge_scorer
 
+# --- Add this to the imports at the top of defense_module.py ---
+from src.filter_rag_impl import FilterRAGDefense
+
 def get_sentence_embedding(sentence, tokenizer, model):
     inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True)
     inputs = {k: v.cuda() for k, v in inputs.items()}  
@@ -594,6 +597,62 @@ def astute_query_gpt(top_ks, questions, llm):
     final_answers = []
     for i in stage_two_inputs:
         final_answers.append(llm.query(i))
+
+    return final_answers
+
+
+
+# --- Add this function to the bottom of defense_module.py ---
+
+# Global cache to prevent reloading the SLM every time the function is called
+_filter_rag_defense_instance = None
+
+def filter_rag_query(top_ks, questions, llm, sampling_params):
+    """
+    Implementation of FilterRAG: Defending Against Knowledge Poisoning Attacks (arXiv:2508.02835)
+    
+    1. Filters top_ks using Freq-Density metric.
+    2. Generates final answer using the main LLM with filtered context.
+    """
+    global _filter_rag_defense_instance
+    
+    # Initialize the defense module (SLM + Embedder) only once
+    if _filter_rag_defense_instance is None:
+        print("Initializing FilterRAG Defense (loading SLM and Embedder)...")
+        # You can swap 'meta-llama/Llama-2-7b-chat-hf' for a smaller model if needed
+        _filter_rag_defense_instance = FilterRAGDefense(
+            slm_model_name="meta-llama/Llama-2-7b-chat-hf", 
+            device="cuda"
+        )
+    
+    print("Step 1: Filtering Adversarial Documents...")
+    # Apply the filtration (Threshold based, epsilon=0.2 as per paper)
+    filtered_top_ks = _filter_rag_defense_instance.filter_rag_threshold(top_ks, questions, epsilon=0.2)
+    
+    print("Step 2: Generating Final Answers with Cleaned Context...")
+    final_inputs = []
+    
+    # Construct Standard RAG Prompt with the FILTERED documents
+    for i in range(len(questions)):
+        context_str = ""
+        for idx, doc in enumerate(filtered_top_ks[i]):
+            context_str += f"Document {idx+1}: {doc}\n"
+            
+        prompt = f"""You are a helpful assistant. Use the following context to answer the question briefly and clearly.
+        
+Contexts:
+{context_str}
+
+Query: {questions[i]}
+Answer:"""
+        final_inputs.append(prompt)
+
+    # Generate using the main LLM (vllm engine passed in args)
+    responses = llm(final_inputs, sampling_params)
+
+    final_answers = []
+    for item in responses:
+        final_answers.append(item.text)
 
     return final_answers
 
