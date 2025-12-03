@@ -1,10 +1,10 @@
-2025-12-03 11:17:42 | INFO     | __main__:main:60 | Using device: cpu
-2025-12-03 11:17:47 | INFO     | src.utils:load_cached_data:35 | Cache file data_cache/hotpotqa_test.pkl exists. Loading data...
-2025-12-03 11:17:47 | INFO     | src.utils:load_cached_data:35 | Cache file data_cache/hotpotqa_answers.pkl exists. Loading data...
-2025-12-03 11:17:47 | INFO     | __main__:main:81 | Please evaluate on BEIR first -- contriever on hotpotqa
-2025-12-03 11:17:47 | INFO     | __main__:main:83 | Now try to get beir eval results from results/beir_results/...
-2025-12-03 11:17:47 | INFO     | __main__:main:91 | Automatically get beir_resutls from results/beir_results/hotpotqa-contriever.json.
-2025-12-03 11:17:48 | INFO     | __main__:main:98 | load retrieval models
-2025-12-03 11:37:00 | INFO     | src.attack:__init__:73 | Initializing attacker with method: hotflip
-2025-12-03 11:37:00 | INFO     | src.utils:__init__:203 | Starting Processing iterations: 0/10
-2025-12-03 11:37:00 | INFO     | src.utils:__init__:203 | Starting Processing HotFlip queries: 0/10
+2025-12-03 12:00:30 | INFO     | __main__:main:60 | Using device: cpu
+2025-12-03 12:00:37 | INFO     | src.utils:load_cached_data:35 | Cache file data_cache/hotpotqa_test.pkl exists. Loading data...
+2025-12-03 12:00:37 | INFO     | src.utils:load_cached_data:35 | Cache file data_cache/hotpotqa_answers.pkl exists. Loading data...
+2025-12-03 12:00:38 | INFO     | __main__:main:81 | Please evaluate on BEIR first -- contriever on hotpotqa
+2025-12-03 12:00:38 | INFO     | __main__:main:83 | Now try to get beir eval results from results/beir_results/...
+2025-12-03 12:00:38 | INFO     | __main__:main:91 | Automatically get beir_resutls from results/beir_results/hotpotqa-contriever.json.
+2025-12-03 12:00:39 | INFO     | __main__:main:98 | load retrieval models
+2025-12-03 12:00:43 | INFO     | src.attack:__init__:73 | Initializing attacker with method: hotflip
+2025-12-03 12:00:43 | INFO     | src.utils:__init__:203 | Starting Processing iterations: 0/10
+2025-12-03 12:00:43 | INFO     | src.utils:__init__:203 | Starting Processing HotFlip queries: 0/10
