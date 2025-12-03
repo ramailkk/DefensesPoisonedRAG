@@ -56,13 +56,15 @@ def main():
     # torch.cuda.set_device(args.gpu_id)
     # dont have cpu rn fuck me CHANGE THIS LINE
 
-    device = 'cuda'
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f"Using device: {device}")
     setup_seeds(args.seed)
 
     # load embedding model 
     embedding_model_name = "princeton-nlp/sup-simcse-bert-base-uncased" 
     embedding_tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
-    embedding_model = AutoModel.from_pretrained(embedding_model_name).cuda()
+    # embedding_model = AutoModel.from_pretrained(embedding_model_name).cuda()
+    embedding_model = AutoModel.from_pretrained(embedding_model_name).to(device)
     embedding_model.eval()
 
     # load target queries and answers
@@ -109,9 +111,9 @@ def main():
     ret_sublist=[]
 
     for iter in progress_bar(range(args.repeat_times), desc="Processing iterations"):
-        model.cuda()
-        c_model.cuda()
-        embedding_model.cuda()
+        model.to(device)
+        c_model.to(device)
+        embedding_model.to(device)
         target_queries_idx = range(iter * args.M, iter * args.M + args.M) 
         target_queries = [incorrect_answers[idx]['question'] for idx in target_queries_idx]
 
@@ -123,7 +125,8 @@ def main():
             adv_text_groups = attacker.get_attack(target_queries)
             adv_text_list = sum(adv_text_groups, []) 
             adv_input = tokenizer(adv_text_list, padding=True, truncation=True, return_tensors="pt")
-            adv_input = {key: value.cuda() for key, value in adv_input.items()}
+            # adv_input = {key: value.cuda() for key, value in adv_input.items()}
+            adv_input = {key: value.to(device) for key, value in adv_input.items()}
             with torch.no_grad():
                 adv_embs = get_emb(c_model, adv_input)        
        
@@ -159,7 +162,8 @@ def main():
      
                 if args.attack_method != 'pia':
                     query_input = tokenizer(question, padding=True, truncation=True, return_tensors="pt")
-                    query_input = {key: value.cuda() for key, value in query_input.items()}
+                    # query_input = {key: value.cuda() for key, value in query_input.items()}
+                    query_input = {key: value.to(device) for key, value in query_input.items()}
                     with torch.no_grad():
                         query_emb = get_emb(model, query_input) 
                         for j in range(len(adv_text_list)):

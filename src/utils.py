@@ -47,28 +47,32 @@ def load_cached_data(cache_file, load_function, *args, **kwargs):
 def setup_experiment_logging(experiment_name=None, log_dir='logs'):
     """
     Configure logging for experiments with both console and file output.
-    
-    Args:
-        experiment_name: Name of the experiment for the log file
-        log_dir: Directory to store log files
     """
     # Remove any existing handlers
     logger.remove()
     
-    # Add console handler with a simple format
+    # Add console handler
     logger.add(sys.stderr, format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>", level="INFO")
     
     # Add file handler if experiment_name is provided
     if experiment_name:
         os.makedirs(log_dir, exist_ok=True)
         log_file = os.path.join(log_dir, f"{experiment_name}.log")
-        if os.path.exists(log_file):
-            os.remove(log_file)
+        
+        # --- FIX STARTS HERE ---
+        # DELETE OR COMMENT OUT THESE LINES:
+        # if os.path.exists(log_file):
+        #     os.remove(log_file)
+        
+        # Instead, use mode='w' (write) to overwrite the file cleanly, 
+        # or mode='a' (append) to add to it. 'w' is equivalent to deleting and starting new.
         logger.add(
             log_file,
             format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}",
-            level="INFO"
+            level="INFO",
+            mode="w"  # This overwrites the file without needing os.remove()
         )
+        # --- FIX ENDS HERE ---
         
     return logger 
 
