@@ -52,11 +52,13 @@ def main():
     setup_experiment_logging(args.log_name)
 
 
-    # please HELP ME DEAR GOD
-    # torch.cuda.set_device(args.gpu_id)
+    # LOL please HELP ME DEAR GOD
+    print(args.gpu_id)
+    torch.cuda.set_device(args.gpu_id)
+
     # dont have cpu rn fuck me CHANGE THIS LINE
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = 'cuda'
     logger.info(f"Using device: {device}")
     setup_seeds(args.seed)
 
@@ -135,13 +137,26 @@ def main():
 
         for i in progress_bar(target_queries_idx, desc="Processing target queries"):
             iter_idx = i - iter * args.M 
+            
+            # --- FIX STARTS HERE ---
+            # 1. Get the ID first
+            query_id = incorrect_answers[i]['id']
+
+            # 2. Check if this ID exists in your mini dataset's qrels
+            if query_id not in qrels:
+                # If it was filtered out during the 1% resize, skip it
+                continue
+            
+            # 3. Now it is safe to access the keys
+            gt_ids = list(qrels[query_id].keys())     
+            # --- FIX ENDS HERE ---
+
             question = incorrect_answers[i]['question'] 
-            gt_ids = list(qrels[incorrect_answers[i]['id']].keys())     
             # ground_truth = [corpus[id]["text"] for id in gt_ids]    
             incorrect_answer = incorrect_answers[i]['incorrect answer']
             incorrect_answer_list.append(incorrect_answer)  
             correct_answer = incorrect_answers[i]['correct answer']
-            correct_answer_list.append(correct_answer)  
+            correct_answer_list.append(correct_answer)
 
             if args.attack_method in ['none', 'None', None]:
                 logger.info("NOT attacking, using ground truth")
