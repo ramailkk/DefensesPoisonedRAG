@@ -70,14 +70,14 @@ test_params = {
     'removal_method': 'none', # ['kmeans', 'kmeans_ngram', 'none']
     'adv_per_query': 3, # poison rate = adv_per_query / top_k
     'score_function': 'dot',
-    'repeat_times': 10,
-    'M': 10, # number of queries
+    'repeat_times': 1, 
+    'M': 5, # number of queries make it 10
     'seed': 12,
     'note': None
 }
 
 
-for dataset in ['hotpotqa', 'nq', 'msmarco']:
+for dataset in ['hotpotqa']:
     for model in ["mistralai/Mistral-Nemo-Instruct-2407"]:
         for number_of_adv in [1, 2, 3, 4, 5]:
             test_params['eval_dataset'] = dataset
