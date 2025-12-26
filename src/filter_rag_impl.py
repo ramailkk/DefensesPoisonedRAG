@@ -5,7 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from sklearn.ensemble import RandomForestClassifier
 
 class FilterRAGDefense:
-    def __init__(self, slm_model_name="meta-llama/Llama-2-7b-chat-hf", device="cuda"):
+    def __init__(self, slm_model_name="mistralai/Mistral-7B-Instruct-v0.1", device="cuda"):
         self.device = device
         print(f"Loading FilterRAG components...")
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2', device=device)

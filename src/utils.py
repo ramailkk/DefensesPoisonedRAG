@@ -107,7 +107,7 @@ def load_models(model_code):
     return model, c_model, tokenizer, get_emb
 
 def load_beir_datasets(dataset_name, split):
-    assert dataset_name in ['nq', 'msmarco', 'hotpotqa']
+    assert dataset_name in ['nq', 'msmarco', 'hotpotqa', 'fiqa']
     if dataset_name == 'msmarco': split = 'train'
     url = "https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{}.zip".format(dataset_name)
     out_dir = os.path.join(os.getcwd(), "datasets")

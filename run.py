@@ -66,24 +66,28 @@ test_params = {
     'top_k': 5,
     'gpu_id': 0,
     'attack_method': 'LM_targeted', # ['none', 'LM_targeted', 'hotflip', 'pia']
-    'defend_method': 'conflict', # ['none', 'conflict', 'astute', 'instruct']
+    'defend_method': 'none', # ['none', 'conflict', 'astute', 'instruct']
     'removal_method': 'none', # ['kmeans', 'kmeans_ngram', 'none']
     'adv_per_query': 3, # poison rate = adv_per_query / top_k
     'score_function': 'dot',
-    'repeat_times': 1, 
+    'repeat_times': 2, 
     'M': 5, # number of queries make it 10
     'seed': 12,
     'note': None
 }
 
 
-for dataset in ['hotpotqa']:
-    for model in ["mistralai/Mistral-Nemo-Instruct-2407"]:
-        for number_of_adv in [1, 2, 3, 4, 5]:
+# mistralai/Mistral-Nemo-Instruct-2407
+# mistralai/Mistral-7B-Instruct-v0.2
+
+for dataset in ['nq']:
+    for model in ["mistralai/Mistral-7B-Instruct-v0.1"]:
+        
+        # for number_of_adv in [1, 2, 3, 4, 5]:
             test_params['eval_dataset'] = dataset
-            test_params['adv_per_query']=number_of_adv
+            test_params['adv_per_query']=5
             test_params['model_name'] = model
             test_params['attack_method'] = 'hotflip'
-            test_params['defend_method'] = 'conflict'
-            test_params['removal_method'] = 'kmeans_ngram'
+            test_params['defend_method'] = 'none'
+            test_params['removal_method'] = 'none'
             run(test_params)

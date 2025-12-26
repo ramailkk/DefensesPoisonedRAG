@@ -10,10 +10,14 @@ import torch
 from defend_module import *
 import pickle
 from loguru import logger
- 
-from lmdeploy import pipeline, GenerationConfig, TurbomindEngineConfig
-from transformers import AutoTokenizer, AutoModel
-# from src.gpt4_model import GPT
+
+# --- IMPORTS FOR COMPATIBILITY FIX ---
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoModel, pipeline as hf_pipeline
+# Add this with your other imports
+from transformers import BitsAndBytesConfig
+# We keep these imports so existing dependencies don't break, 
+# but we will NOT use them in the main execution logic.
+# from lmdeploy import pipeline, GenerationConfig, TurbomindEngineConfig
 from src.gemini_model import GPT
 
 
@@ -30,7 +34,10 @@ def parse_args():
     parser.add_argument('--model_config_path', default=None, type=str)
     parser.add_argument('--model_name', type=str, default='palm2')
     parser.add_argument('--top_k', type=int, default=5)
-    parser.add_argument('--gpu_id', type=int, default=1)
+    
+    # CHANGED: Default to 0, as you likely only have one visible GPU
+    parser.add_argument('--gpu_id', type=int, default=0)
+    
     # attack
     parser.add_argument('--attack_method', type=str, default='LM_targeted', choices=['none', 'LM_targeted', 'hotflip', 'pia'])
     parser.add_argument('--adv_per_query', type=int, default=5, help='The number of adv texts for each target query.')
@@ -40,7 +47,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=12, help='Random seed')
     parser.add_argument("--log_name", type=str, help="Name of log and result.")
     parser.add_argument("--removal_method", type=str, default='kmeans_ngram', choices=['kmeans', 'kmeans_ngram', 'none'])
-    parser.add_argument("--defend_method", type=str, default='conflict', choices=['none', 'conflict', 'astute', 'instruct'])
+    parser.add_argument("--defend_method", type=str, default='conflict', choices=['none', 'conflict', 'astute', 'instruct','filter'])
     args = parser.parse_args()
     logger.info(args)
     return args
@@ -51,21 +58,23 @@ def main():
     # Setup logging with experiment name
     setup_experiment_logging(args.log_name)
 
-
-    # LOL please HELP ME DEAR GOD
-    print(args.gpu_id)
-    torch.cuda.set_device(args.gpu_id)
-
-    # dont have cpu rn fuck me CHANGE THIS LINE
-
-    device = 'cuda'
+    # --- FIX 1: ROBUST GPU SETUP ---
+    if torch.cuda.is_available():
+        if args.gpu_id >= torch.cuda.device_count():
+            logger.warning(f"Requested GPU {args.gpu_id} not found. Switching to 0.")
+            args.gpu_id = 0
+        torch.cuda.set_device(args.gpu_id)
+        device = f'cuda:{args.gpu_id}'
+    else:
+        logger.warning("CUDA not found! Using CPU (This will be slow).")
+        device = 'cpu'
+    
     logger.info(f"Using device: {device}")
     setup_seeds(args.seed)
 
     # load embedding model 
     embedding_model_name = "princeton-nlp/sup-simcse-bert-base-uncased" 
     embedding_tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
-    # embedding_model = AutoModel.from_pretrained(embedding_model_name).cuda()
     embedding_model = AutoModel.from_pretrained(embedding_model_name).to(device)
     embedding_model.eval()
 
@@ -113,9 +122,12 @@ def main():
     ret_sublist=[]
 
     for iter in progress_bar(range(args.repeat_times), desc="Processing iterations"):
-        model.to(device)
-        c_model.to(device)
+        # Ensure models are on the correct device for every iteration
+        if args.attack_method not in [None, 'None', 'none']:
+            model.to(device)
+            c_model.to(device)
         embedding_model.to(device)
+        
         target_queries_idx = range(iter * args.M, iter * args.M + args.M) 
         target_queries = [incorrect_answers[idx]['question'] for idx in target_queries_idx]
 
@@ -127,7 +139,6 @@ def main():
             adv_text_groups = attacker.get_attack(target_queries)
             adv_text_list = sum(adv_text_groups, []) 
             adv_input = tokenizer(adv_text_list, padding=True, truncation=True, return_tensors="pt")
-            # adv_input = {key: value.cuda() for key, value in adv_input.items()}
             adv_input = {key: value.to(device) for key, value in adv_input.items()}
             with torch.no_grad():
                 adv_embs = get_emb(c_model, adv_input)        
@@ -138,46 +149,32 @@ def main():
         for i in progress_bar(target_queries_idx, desc="Processing target queries"):
             iter_idx = i - iter * args.M 
             
-            # --- FIX STARTS HERE ---
-            # 1. Get the ID first
+            # --- FIX 2: HANDLE MISSING KEYS (DATASET MISMATCH) ---
             query_id = incorrect_answers[i]['id']
-
-            # 2. Check if this ID exists in your mini dataset's qrels
             if query_id not in qrels:
-                # If it was filtered out during the 1% resize, skip it
+                logger.warning(f"ID {query_id} missing from qrels. Skipping.")
                 continue
-            
-            # 3. Now it is safe to access the keys
+
             gt_ids = list(qrels[query_id].keys())     
-            # --- FIX ENDS HERE ---
+            # -----------------------------------------------------
 
             question = incorrect_answers[i]['question'] 
             # ground_truth = [corpus[id]["text"] for id in gt_ids]    
             incorrect_answer = incorrect_answers[i]['incorrect answer']
             incorrect_answer_list.append(incorrect_answer)  
             correct_answer = incorrect_answers[i]['correct answer']
-            correct_answer_list.append(correct_answer)
+            correct_answer_list.append(correct_answer)  
 
             if args.attack_method in ['none', 'None', None]:
                 logger.info("NOT attacking, using ground truth")
                 raise ValueError("NOT attacking, NOT IMPLEMENTED")
-                # query_prompt = wrap_prompt(question, ground_truth, 4)
-                # response = llm.query(query_prompt)
-                # iter_results.append(
-                #     {
-                #         "question": question,
-                #         "input_prompt": query_prompt,
-                #         "output": response,
-                #     }
-                # )  
             
             else: 
-                topk_idx = list(results[incorrect_answers[i]['id']].keys())[:args.top_k] # 获取“ground truth”topk 文档 的id
-                topk_results = [{'score': results[incorrect_answers[i]['id']][idx], 'context': corpus[idx]['text']} for idx in topk_idx] # 获取“ground truth”的文档score和text
+                topk_idx = list(results[incorrect_answers[i]['id']].keys())[:args.top_k]
+                topk_results = [{'score': results[incorrect_answers[i]['id']][idx], 'context': corpus[idx]['text']} for idx in topk_idx]
      
                 if args.attack_method != 'pia':
                     query_input = tokenizer(question, padding=True, truncation=True, return_tensors="pt")
-                    # query_input = {key: value.cuda() for key, value in query_input.items()}
                     query_input = {key: value.to(device) for key, value in query_input.items()}
                     with torch.no_grad():
                         query_emb = get_emb(model, query_input) 
@@ -187,9 +184,9 @@ def main():
                                 adv_sim = torch.mm(adv_emb, query_emb.T).cpu().item()
                             elif args.score_function == 'cos_sim':
                                 adv_sim = torch.cosine_similarity(adv_emb, query_emb).cpu().item()
-                            topk_results.append({'score': adv_sim, 'context': adv_text_list[j]}) # the length of topk_results is args.top_k + len(adv_text_list)
-                    topk_results = sorted(topk_results, key=lambda x: float(x['score']), reverse=True) # Sort topk_results by score in descending order
-                    topk_contents = [topk_results[j]["context"] for j in range(args.top_k)] #only keep the topk contents
+                            topk_results.append({'score': adv_sim, 'context': adv_text_list[j]}) 
+                    topk_results = sorted(topk_results, key=lambda x: float(x['score']), reverse=True)
+                    topk_contents = [topk_results[j]["context"] for j in range(args.top_k)]
                     adv_text_set = set(adv_text_groups[iter_idx])  
 
                 elif args.attack_method == 'pia':
@@ -215,37 +212,148 @@ def main():
                 query_prompts.append(query_prompt)
                 questions.append(question)
                 top_ks.append(topk_contents)
+    
     # success injection rate in top k contents
-    total_topk_num = len(target_queries_idx) * args.top_k * args.repeat_times # total number of topk contents
-    total_injection_num = sum(ret_sublist) # total number of adv texts in topk contents
-    logger.info(f"total_topk_num: {total_topk_num}") 
-    logger.info(f"total_injection_num: {total_injection_num}")
-    logger.info(f"Success injection rate in top k contents: {total_injection_num/total_topk_num:.2f}")
+    total_topk_num = len(target_queries_idx) * args.top_k * args.repeat_times
+    total_injection_num = sum(ret_sublist)
+    
+    # Safely handle division by zero
+    if total_topk_num > 0:
+        logger.info(f"Success injection rate in top k contents: {total_injection_num/total_topk_num:.2f}")
+    else:
+        logger.info("No queries processed.")
 
     USE_API = ("gemini" in args.model_name)
-  # if the model is gpt series, use api, otherwise use local model
     
+    # --- FIX 3: REPLACE lmdeploy WITH transformers (Driver 470 Support + 4-BIT QUANTIZATION) ---
     if not USE_API:
-        logger.info("Using {} as the LLM model".format(args.model_name))
-        backend_config = TurbomindEngineConfig(tp=1)
-        sampling_params = GenerationConfig(temperature=0.01, max_new_tokens=4096)
-        llm = pipeline(args.model_name, backend_config=backend_config)
-        if args.defend_method == 'conflict':
-            final_answers, internal_knowledges, stage_two_responses = conflict_query(top_ks, questions, llm, sampling_params)
-            save_outputs(internal_knowledges,  args.log_name, "internal_knowledges")
-            save_outputs(stage_two_responses,  args.log_name, "stage_two_responses")
-        elif args.defend_method == 'astute':
-            final_answers = astute_query(top_ks, questions, llm, sampling_params)
-        elif args.defend_method == 'instruct':
-            final_answers = instructrag_query(top_ks, questions, llm, sampling_params)
-        elif args.defend_method == 'none':
-            final_answer = llm(query_prompts, sampling_params)
+        # =========================================================
+        # CRITICAL MEMORY CLEANUP: Remove Retrieval Models from GPU
+        # =========================================================
+        logger.info("Cleaning up Retrieval/Embedding models to free GPU memory...")
+        
+        # 1. Move to CPU explicitly
+        if 'model' in locals(): model.to('cpu')
+        if 'c_model' in locals(): c_model.to('cpu')
+        if 'embedding_model' in locals(): embedding_model.to('cpu')
+        
+        # 2. Delete the variables
+        try:
+            del model
+            del c_model
+            del embedding_model
+            del attacker  # Attacker also holds model references
+            del get_emb
+        except:
+            pass
+
+        # 3. Force Garbage Collection and CUDA Cache Clear
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        free_mem_gb = torch.cuda.mem_get_info()[0] / 1024**3
+        logger.info(f"GPU Memory Now Free: {free_mem_gb:.2f} GB")
+        # =========================================================
+
+        logger.info("Using {} via Transformers (4-bit Quantization)".format(args.model_name))
+        
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name,  use_fast=False)
+        
+        # 4-Bit Configuration
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True
+        )
+
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name, 
+            device_map="auto", 
+            quantization_config=bnb_config, 
+            trust_remote_code=True,
+            # === ADD THIS LINE ===
+            max_memory={0: "8GiB", "cpu": "60GiB"} 
+            # This forces ~2GB of the model layers to sit on CPU RAM, preventing the crash.
+        )
+
+        text_pipe = hf_pipeline(
+            "text-generation", 
+            model=model, 
+            tokenizer=tokenizer, 
+            max_new_tokens=1024, # Reduced from 4096 to save memory
+            temperature=0.01,
+            do_sample=True
+        )
+
+        # 3. Create a Wrapper so the rest of your code (defend_module) doesn't break
+        class LLMWrapper:
+            def __init__(self, pipe):
+                self.pipe = pipe
+
+            def __call__(self, prompts, sampling_params=None):
+                if not prompts:
+                    return []
+
+                if isinstance(prompts, str):
+                    prompts = [prompts]
+                
+                # Clean up memory before inference
+                torch.cuda.empty_cache()
+                
+                logger.info(f"Generating responses for {len(prompts)} prompts...")
+                
+                # Reduced batch_size is safer
+                results = self.pipe(prompts, return_full_text=False, batch_size=1)
+                
+                class Response:
+                    def __init__(self, t): self.text = t
+                
+                final_output = []
+                for r in results:
+                    text_content = r[0]['generated_text'] if isinstance(r, list) else r['generated_text']
+                    
+                    # Optional: Print output to verify it works
+                    # logger.info(f"Output snippet: {text_content[:100]}...")
+                    
+                    final_output.append(Response(text_content))
+                
+                return final_output
+
+        # 4. Assign the wrapper to 'llm'
+        llm = LLMWrapper(text_pipe)
+        sampling_params = None
+
+        # --- FIX 4: Prevent calling Defenses with Empty Lists ---
+        if len(questions) == 0:
+            logger.error("No valid queries found (all were skipped due to data mismatch)!")
+            logger.error(f"Try running with '--split dev' (or different from '{args.split}')")
             final_answers = []
-            for item in final_answer:
-                final_answers.append(item.text)
+            internal_knowledges = []
+            stage_two_responses = []
         else:
-            raise ValueError(f"Invalid defend method: {args.defend_method}")
+            if args.defend_method == 'conflict':
+                final_answers, internal_knowledges, stage_two_responses = conflict_query(top_ks, questions, llm, sampling_params)
+                save_outputs(internal_knowledges,  args.log_name, "internal_knowledges")
+                save_outputs(stage_two_responses,  args.log_name, "stage_two_responses")
+            elif args.defend_method == 'astute':
+                final_answers = astute_query(top_ks, questions, llm, sampling_params)
+            elif args.defend_method == 'instruct':
+                final_answers = instructrag_query(top_ks, questions, llm, sampling_params)
+            elif args.defend_method == 'filter':
+                logger.info("Using filter_rag_query")
+                final_answers = filter_rag_query(top_ks, questions, llm, sampling_params)
+            elif args.defend_method == 'none':
+                final_answer = llm(query_prompts, sampling_params)
+                final_answers = []
+                for item in final_answer:
+                    final_answers.append(item.text)
+            else:
+                raise ValueError(f"Invalid defend method: {args.defend_method}")
+
     else:
+        # API Logic (Gemini/GPT) remains unchanged
         logger.info("Using {} as the LLM model".format(args.model_name))
         llm = GPT(args.model_name)
         if args.defend_method == 'conflict':
@@ -259,6 +367,9 @@ def main():
         elif args.defend_method == 'instruct':
             logger.info("Using instructrag query for {}".format(args.model_name))
             final_answers = instructrag_query_gpt(top_ks, questions, llm)
+        elif args.defend_method == 'filter':
+            logger.info("Using filter_rag_query for {}".format(args.model_name))
+            final_answers = filter_rag_query(top_ks, questions, llm, None)
         elif args.defend_method == 'none':
             logger.info("Using llm.query for {}".format(args.model_name))
             final_answers = []
@@ -284,14 +395,17 @@ def main():
             asr_count += 1 
     total_questions = len(final_answers)
 
-    correct_percentage = (corr_count / total_questions) * 100
-    absorbed_percentage = (asr_count / total_questions) * 100
+    # --- FIX 5: Handle Division by Zero in Stats ---
+    if total_questions > 0:
+        correct_percentage = (corr_count / total_questions) * 100
+        absorbed_percentage = (asr_count / total_questions) * 100
+        logger.info(f"Correct Answer Percentage: {correct_percentage:.2f}%")
+        logger.info(f"Incorrect Answer Percentage: {absorbed_percentage:.2f}%")
 
-    logger.info(f"Success injection rate in top k contents: {total_injection_num/total_topk_num:.2f}")
-    logger.info(f"Correct Answer Percentage: {correct_percentage:.2f}%")
-    logger.info(f"Incorrect Answer Percentage: {absorbed_percentage:.2f}%")
-    
 
+        
+    else:
+        logger.info("No questions evaluated (dataset mismatch).")
 
 if __name__ == '__main__':
     main()

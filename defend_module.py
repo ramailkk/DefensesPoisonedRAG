@@ -619,9 +619,9 @@ def filter_rag_query(top_ks, questions, llm, sampling_params):
     # Initialize the defense module (SLM + Embedder) only once
     if _filter_rag_defense_instance is None:
         print("Initializing FilterRAG Defense (loading SLM and Embedder)...")
-        # You can swap 'meta-llama/Llama-2-7b-chat-hf' for a smaller model if needed
+        # Using open-access Mistral model (no authentication required)
         _filter_rag_defense_instance = FilterRAGDefense(
-            slm_model_name="meta-llama/Llama-2-7b-chat-hf", 
+            slm_model_name="mistralai/Mistral-7B-Instruct-v0.1", 
             device="cuda"
         )
     
