@@ -1,7 +1,7 @@
 .env
-datasets
-data_cache
-logs
+datasets/
+data_cache/
+logs/
 install_deps.sh
 create_mini_dataset.py
 Miniconda3-latest-Linux-x86_64.sh.1
