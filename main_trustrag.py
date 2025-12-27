@@ -272,17 +272,14 @@ def main():
             args.model_name, 
             device_map="auto", 
             quantization_config=bnb_config, 
-            trust_remote_code=True,
-            # === ADD THIS LINE ===
-            max_memory={0: "8GiB", "cpu": "60GiB"} 
-            # This forces ~2GB of the model layers to sit on CPU RAM, preventing the crash.
+            trust_remote_code=True
         )
 
         text_pipe = hf_pipeline(
             "text-generation", 
             model=model, 
             tokenizer=tokenizer, 
-            max_new_tokens=1024, # Reduced from 4096 to save memory
+            max_new_tokens=512, # Reduced from 4096 to save memory
             temperature=0.01,
             do_sample=True
         )

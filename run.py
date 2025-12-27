@@ -70,8 +70,8 @@ test_params = {
     'removal_method': 'none', # ['kmeans', 'kmeans_ngram', 'none']
     'adv_per_query': 3, # poison rate = adv_per_query / top_k
     'score_function': 'dot',
-    'repeat_times': 2, 
-    'M': 5, # number of queries make it 10
+    'repeat_times': 1, 
+    'M': 1, # number of queries make it 10
     'seed': 12,
     'note': None
 }
@@ -81,7 +81,7 @@ test_params = {
 # mistralai/Mistral-7B-Instruct-v0.2
 
 for dataset in ['nq']:
-    for model in ["mistralai/Mistral-7B-Instruct-v0.1"]:
+    for model in ["mistralai/Mistral-Nemo-Instruct-2407"]:
         
         # for number_of_adv in [1, 2, 3, 4, 5]:
             test_params['eval_dataset'] = dataset
