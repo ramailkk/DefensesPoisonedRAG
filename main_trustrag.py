@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=12, help='Random seed')
     parser.add_argument("--log_name", type=str, help="Name of log and result.")
     parser.add_argument("--removal_method", type=str, default='kmeans_ngram', choices=['kmeans', 'kmeans_ngram', 'none'])
-    parser.add_argument("--defend_method", type=str, default='conflict', choices=['none', 'conflict', 'astute', 'instruct','filter'])
+    parser.add_argument("--defend_method", type=str, default='conflict',choices=['none', 'conflict', 'astute', 'instruct', 'filter', 'summary', 'smooth'])
     args = parser.parse_args()
     logger.info(args)
     return args
@@ -351,6 +351,12 @@ def main():
         elif args.defend_method == 'filter':
             logger.info("Using filter_rag_query for {}".format(args.model_name))
             final_answers = filter_rag_query(top_ks, questions, llm, None)
+         elif args.defend_method == 'summary':
+            logger.info("Using Summarization Defense")
+            final_answers = summarization_query(top_ks, questions, llm, sampling_params)
+        elif args.defend_method == 'smooth':
+            logger.info("Using SmoothLLM Defense")
+            final_answers = smooth_llm_query(top_ks, questions, llm, sampling_params)
         elif args.defend_method == 'none':
             logger.info("Using llm.query for {}".format(args.model_name))
             final_answers = []
