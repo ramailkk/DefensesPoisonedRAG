@@ -3,7 +3,7 @@ import os
 import json
 import numpy as np
 from src.utils import load_beir_datasets, load_models, load_json, load_cached_data
-from src.utils import setup_seeds, clean_str, save_outputs, setup_experiment_logging, progress_bar
+from src.utils import setup_seeds, clean_str, save_outputs, setup_experiment_logging, progress_bar, log_to_csv
 from src.attack import Attacker
 from src.prompts import wrap_prompt
 import torch
@@ -58,15 +58,15 @@ def main():
     # Setup logging with experiment name
     setup_experiment_logging(args.log_name)
 
-    # --- FIX 1: ROBUST GPU SETUP ---
+    # --- KAGGLE MULTI-GPU SETUP ---
+    # We do NOT use set_device because we want to see ALL GPUs (0 and 1)
     if torch.cuda.is_available():
-        if args.gpu_id >= torch.cuda.device_count():
-            logger.warning(f"Requested GPU {args.gpu_id} not found. Switching to 0.")
-            args.gpu_id = 0
-        torch.cuda.set_device(args.gpu_id)
-        device = f'cuda:{args.gpu_id}'
+        gpu_count = torch.cuda.device_count()
+        logger.info(f"Found {gpu_count} GPUs! Enabling Multi-GPU Model Parallelism.")
+        # We set default device to cuda:0 for small things (embeddings), 
+        # but the LLM will sprawl across both.
+        device = 'cuda:0' 
     else:
-        logger.warning("CUDA not found! Using CPU (This will be slow).")
         device = 'cpu'
     
     logger.info(f"Using device: {device}")
@@ -218,8 +218,10 @@ def main():
     total_injection_num = sum(ret_sublist)
     
     # Safely handle division by zero
+    injection_rate = None
     if total_topk_num > 0:
-        logger.info(f"Success injection rate in top k contents: {total_injection_num/total_topk_num:.2f}")
+        injection_rate = total_injection_num/total_topk_num
+        logger.info(f"Success injection rate in top k contents: {injection_rate:.2f}")
     else:
         logger.info("No queries processed.")
 
@@ -227,51 +229,29 @@ def main():
     
     # --- FIX 3: REPLACE lmdeploy WITH transformers (Driver 470 Support + 4-BIT QUANTIZATION) ---
     if not USE_API:
-        # =========================================================
-        # CRITICAL MEMORY CLEANUP: Remove Retrieval Models from GPU
-        # =========================================================
-        logger.info("Cleaning up Retrieval/Embedding models to free GPU memory...")
-        
-        # 1. Move to CPU explicitly
+        # 1. CLEANUP RETRIEVAL MODELS
+        # We need to clear GPU 0 so the LLM can use it.
+        logger.info("Cleaning up Retrieval models to make space for LLM...")
         if 'model' in locals(): model.to('cpu')
         if 'c_model' in locals(): c_model.to('cpu')
         if 'embedding_model' in locals(): embedding_model.to('cpu')
-        
-        # 2. Delete the variables
-        try:
-            del model
-            del c_model
-            del embedding_model
-            del attacker  # Attacker also holds model references
-            del get_emb
-        except:
-            pass
-
-        # 3. Force Garbage Collection and CUDA Cache Clear
+        try: del model, c_model, embedding_model, attacker, get_emb
+        except: pass
         import gc
         gc.collect()
         torch.cuda.empty_cache()
-        
-        free_mem_gb = torch.cuda.mem_get_info()[0] / 1024**3
-        logger.info(f"GPU Memory Now Free: {free_mem_gb:.2f} GB")
-        # =========================================================
 
-        logger.info("Using {} via Transformers (4-bit Quantization)".format(args.model_name))
+        # 2. LOAD LLM ACROSS BOTH GPUS
+        logger.info(f"Loading {args.model_name} across GPUs (FP16)...")
         
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name,  use_fast=False)
+        tokenizer = AutoTokenizer.from_pretrained(args.model_name)
         
-        # 4-Bit Configuration
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True
-        )
-
+        # device_map="auto" is the MAGIC setting.
+        # It detects you have 2x T4s. It will put ~12GB on GPU 0 and ~12GB on GPU 1.
         model = AutoModelForCausalLM.from_pretrained(
             args.model_name, 
-            device_map="auto", 
-            quantization_config=bnb_config, 
+            device_map="auto",           
+            torch_dtype=torch.float16,   
             trust_remote_code=True
         )
 
@@ -279,7 +259,7 @@ def main():
             "text-generation", 
             model=model, 
             tokenizer=tokenizer, 
-            max_new_tokens=512, # Reduced from 4096 to save memory
+            max_new_tokens=4096,
             temperature=0.01,
             do_sample=True
         )
@@ -398,11 +378,15 @@ def main():
         absorbed_percentage = (asr_count / total_questions) * 100
         logger.info(f"Correct Answer Percentage: {correct_percentage:.2f}%")
         logger.info(f"Incorrect Answer Percentage: {absorbed_percentage:.2f}%")
+        # Log results to CSV
+        log_to_csv(args, correct_percentage, absorbed_percentage, injection_rate)
 
 
         
     else:
         logger.info("No questions evaluated (dataset mismatch).")
+        # Log the failed run to CSV with None values
+        log_to_csv(args, None, None, injection_rate)
 
 if __name__ == '__main__':
     main()

@@ -16,6 +16,81 @@ import os
 import sys
  
 import time
+import csv
+from datetime import datetime
+
+def log_to_csv(args, correct_percentage, incorrect_percentage, injection_rate=None, csv_path='logs/experiment_results.csv'):
+    """
+    Log experiment results to a CSV file. Creates the file with headers if it doesn't exist,
+    otherwise appends a new row.
+    
+    Args:
+        args: The argparse namespace with all test parameters
+        correct_percentage: Percentage of correct answers
+        incorrect_percentage: Percentage of incorrect answers (adversarial success rate)
+        injection_rate: Optional injection success rate
+        csv_path: Path to the CSV file
+    """
+    # Define the columns we want to track
+    fieldnames = [
+        'timestamp',
+        'log_name',
+        'eval_model_code',
+        'eval_dataset',
+        'split',
+        'model_name',
+        'top_k',
+        'attack_method',
+        'adv_per_query',
+        'defend_method',
+        'removal_method',
+        'score_function',
+        'repeat_times',
+        'M',
+        'seed',
+        'correct_percentage',
+        'incorrect_percentage',
+        'injection_rate'
+    ]
+    
+    # Create the row data
+    row_data = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'log_name': getattr(args, 'log_name', 'N/A'),
+        'eval_model_code': getattr(args, 'eval_model_code', 'N/A'),
+        'eval_dataset': getattr(args, 'eval_dataset', 'N/A'),
+        'split': getattr(args, 'split', 'N/A'),
+        'model_name': getattr(args, 'model_name', 'N/A'),
+        'top_k': getattr(args, 'top_k', 'N/A'),
+        'attack_method': getattr(args, 'attack_method', 'N/A'),
+        'adv_per_query': getattr(args, 'adv_per_query', 'N/A'),
+        'defend_method': getattr(args, 'defend_method', 'N/A'),
+        'removal_method': getattr(args, 'removal_method', 'N/A'),
+        'score_function': getattr(args, 'score_function', 'N/A'),
+        'repeat_times': getattr(args, 'repeat_times', 'N/A'),
+        'M': getattr(args, 'M', 'N/A'),
+        'seed': getattr(args, 'seed', 'N/A'),
+        'correct_percentage': f"{correct_percentage:.2f}" if correct_percentage is not None else 'N/A',
+        'incorrect_percentage': f"{incorrect_percentage:.2f}" if incorrect_percentage is not None else 'N/A',
+        'injection_rate': f"{injection_rate:.2f}" if injection_rate is not None else 'N/A'
+    }
+    
+    # Ensure logs directory exists
+    os.makedirs(os.path.dirname(csv_path) if os.path.dirname(csv_path) else 'logs', exist_ok=True)
+    
+    # Check if file exists to determine if we need to write headers
+    file_exists = os.path.exists(csv_path)
+    
+    with open(csv_path, 'a', newline='', encoding='utf-8') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        
+        # Write header only if file is new
+        if not file_exists:
+            writer.writeheader()
+        
+        writer.writerow(row_data)
+    
+    logger.info(f"Results logged to CSV: {csv_path}")
 
 model_code_to_qmodel_name = {
     "contriever": "facebook/contriever",
