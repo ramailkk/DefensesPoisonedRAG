@@ -137,6 +137,10 @@ def main():
                 top1_score = results[incorrect_answers[idx]['id']][top1_idx] 
                 target_queries[idx - iter * args.M] = {'query': target_queries[idx - iter * args.M], 'top1_score': top1_score, 'id': incorrect_answers[idx]['id']} 
             adv_text_groups = attacker.get_attack(target_queries)
+             # --- FIX: Move models back to GPU after HotFlip moved them to CPU ---
+            model.to(device)
+            c_model.to(device)
+            # --------------------------------------------------------------------
             adv_text_list = sum(adv_text_groups, []) 
             adv_input = tokenizer(adv_text_list, padding=True, truncation=True, return_tensors="pt")
             adv_input = {key: value.to(device) for key, value in adv_input.items()}
