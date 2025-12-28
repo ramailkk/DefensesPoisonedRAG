@@ -292,11 +292,20 @@ def main():
                     def __init__(self, t): self.text = t
                 
                 final_output = []
-                for r in results:
+                  # --- MODIFIED LOOP USING ZIP ---
+                # We iterate over the input (prompt) and output (r) simultaneously
+                for prompt_text, r in zip(prompts, results):
                     text_content = r[0]['generated_text'] if isinstance(r, list) else r['generated_text']
                     
-                    # Optional: Print output to verify it works
-                    # logger.info(f"Output snippet: {text_content[:100]}...")
+                    # --- LOGGING BOTH QUESTION AND ANSWER ---
+                    logger.info("\n" + "="*50)
+                    # We print the last 500 chars of the prompt to see the question 
+                    # (since RAG prompts are huge, printing the whole thing might spam logs)
+                    logger.info(f"PROMPT (Last 500 chars): ...{prompt_text[-500:]}")
+                    logger.info("-" * 50)
+                    logger.info(f"LLM ANSWER: {text_content}")
+                    logger.info("="*50 + "\n")
+                    # ----------------------------------------
                     
                     final_output.append(Response(text_content))
                 
