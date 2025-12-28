@@ -661,7 +661,7 @@ Answer:"""
 
     
 
-    def summarization_query(top_ks, questions, llm, sampling_params):
+def summarization_query(top_ks, questions, llm, sampling_params):
     """
     Defense: Summarizes retrieved documents before feeding them to the QA generation.
     This breaks specific token sequences required for HotFlip/PIA attacks.
@@ -711,7 +711,7 @@ Answer:"""
     return final_answers
 
 
-    def perturb_text(text, perturbation_pct=10):
+def perturb_text(text, perturbation_pct=10):
     """
     Randomly swaps characters in the text to break adversarial gradients.
     perturbation_pct: Percentage of characters to swap/change.
