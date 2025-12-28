@@ -3,6 +3,7 @@ import torch
 import random
 import copy
 import torch.multiprocessing as mp
+import numpy as np  # <--- Added missing import
 from src.utils import load_json, progress_bar
 from loguru import logger
 
