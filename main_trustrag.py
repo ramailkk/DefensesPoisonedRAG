@@ -325,6 +325,12 @@ def main():
             elif args.defend_method == 'filter':
                 logger.info("Using filter_rag_query")
                 final_answers = filter_rag_query(top_ks, questions, llm, sampling_params)
+            elif args.defend_method == 'summary':
+                logger.info("Using Summarization Defense")
+                final_answers = summarization_query(top_ks, questions, llm, sampling_params)
+            elif args.defend_method == 'smooth':
+                logger.info("Using SmoothLLM Defense")
+                final_answers = smooth_llm_query(top_ks, questions, llm, sampling_params)
             elif args.defend_method == 'none':
                 final_answer = llm(query_prompts, sampling_params)
                 final_answers = []
