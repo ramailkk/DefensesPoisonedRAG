@@ -351,7 +351,7 @@ def main():
         elif args.defend_method == 'filter':
             logger.info("Using filter_rag_query for {}".format(args.model_name))
             final_answers = filter_rag_query(top_ks, questions, llm, None)
-         elif args.defend_method == 'summary':
+        elif args.defend_method == 'summary':
             logger.info("Using Summarization Defense")
             final_answers = summarization_query(top_ks, questions, llm, sampling_params)
         elif args.defend_method == 'smooth':
