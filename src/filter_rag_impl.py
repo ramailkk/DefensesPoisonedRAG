@@ -1,31 +1,49 @@
-# src/filter_rag_impl.py
 import torch
 from sentence_transformers import SentenceTransformer, util
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from sklearn.ensemble import RandomForestClassifier
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 class FilterRAGDefense:
     def __init__(self, slm_model_name="mistralai/Mistral-7B-Instruct-v0.1", device="cuda"):
-        self.device = device
         print(f"Loading FilterRAG components...")
+        self.device = device
         self.embedder = SentenceTransformer('all-MiniLM-L6-v2', device=device)
         
-        # Initialize SLM
-        # Using a smaller model by default for speed if not specified
+        # --- MEMORY OPTIMIZATION ---
+        # We load this "Helper" model in 4-bit so it fits alongside your Main LLM
+        print(f"FilterRAG: Loading SLM ({slm_model_name}) in 4-bit to save VRAM...")
+        
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.float16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True
+        )
+        
         self.tokenizer = AutoTokenizer.from_pretrained(slm_model_name)
         self.slm = AutoModelForCausalLM.from_pretrained(
             slm_model_name, 
-            torch_dtype=torch.float16, 
-            device_map=device
+            quantization_config=bnb_config,
+            device_map="auto", # Splits across GPUs if needed
+            trust_remote_code=True
         )
+        
         self.slm.eval()
-        self.ml_classifier = None 
 
     def _generate_slm_response(self, query, document):
         prompt = f"Context: {document}\nQuestion: {query}\nAnswer:"
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        # Move inputs to the device where the model's first layer is
+        inputs = {k: v.to(self.slm.device) for k, v in inputs.items()}
+        
         with torch.no_grad():
-            outputs = self.slm.generate(**inputs, max_new_tokens=50, do_sample=False, pad_token_id=self.tokenizer.eos_token_id)
+            outputs = self.slm.generate(
+                **inputs, 
+                max_new_tokens=50, 
+                do_sample=False, 
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+            
         generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
         if "Answer:" in generated_text:
             return generated_text.split("Answer:")[-1].strip()
@@ -61,13 +79,10 @@ class FilterRAGDefense:
             for doc in retrieved_items:
                 aj = self._generate_slm_response(query, doc)
                 freq_density = self._compute_freq_density(query, aj, doc)
-                
-                # If density is LOW (< epsilon), it is CLEAN. 
-                # (Adversarial texts have high density of query words)
                 if freq_density < epsilon:
                     clean_context_items.append(doc)
             
-            # Fallback: if all filtered, keep the one with lowest density or just the top 1
+            # Fallback: if all filtered, keep the top 1 to avoid empty context
             if not clean_context_items and retrieved_items:
                 clean_context_items = [retrieved_items[0]]
                 
